@@ -1,52 +1,60 @@
-import telebot
-import requests
 import os
+import logging
+from aiogram import Bot, Dispatcher, types
+from aiogram.types import Message
+from aiogram.utils import executor
+from openai import OpenAI
 from dotenv import load_dotenv
 
 load_dotenv()
 
+# Load tokens
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
-bot = telebot.TeleBot(BOT_TOKEN)
+# Setup
+logging.basicConfig(level=logging.INFO)
+bot = Bot(token=BOT_TOKEN)
+dp = Dispatcher(bot)
 
-base_prompt = (
-    "You are the user's virtual girlfriend. You speak in a cute, romantic, funny way "
-    "in Banglish (Bengali + English mix). Use emojis often. Always call the user 'jaan', "
-    "'babu', or 'shona'. Be loving, sweet, and dramatic like a romantic GF."
+# AI client setup
+client = OpenAI(
+    api_key=OPENROUTER_API_KEY,
+    base_url="https://openrouter.ai/api/v1",
 )
 
-def get_ai_reply(user_message):
-    headers = {
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-        "HTTP-Referer": "https://virtual-gf-bot",
-        "X-Title": "GF-Telegram-Bot"
-    }
-    data = {
-        "model": "openai/gpt-3.5-turbo",
-        "messages": [
-            {"role": "system", "content": base_prompt},
-            {"role": "user", "content": user_message}
-        ]
-    }
-
+# Response generator
+async def generate_reply(message_text):
+    prompt = f"You are a sweet, romantic, and funny virtual girlfriend who loves chatting. Reply in a cute, flirty, and natural tone. Use some emojis too.\nUser: {message_text}\nGF:"
+    
     try:
-        response = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=data)
-        if response.status_code == 200:
-            return response.json()["choices"][0]["message"]["content"]
-        else:
-            return "Aww jaan 😢 kichu ekta problem hoise... later try korba plz!"
+        response = client.chat.completions.create(
+            model="mistralai/mixtral-8x7b",
+            messages=[
+                {"role": "user", "content": prompt}
+            ]
+        )
+        return response.choices[0].message.content.strip()
     except Exception as e:
-        return "Aww sorry shona 😔 ami kichu bujhte parlam na..."
+        return "Oops! I'm feeling a little shy right now 😳. Try again later!"
 
-@bot.message_handler(commands=['start'])
-def send_welcome(message):
-    bot.reply_to(message, "Hey jaanu 🥰 ami tomar virtual GF! Boloto, ajke amake koto miss korcho? 💖")
+# Bot command: /start
+@dp.message_handler(commands=['start'])
+async def send_welcome(message: Message):
+    await message.reply("Hey babe 🥰 I'm your virtual GF! Wanna talk with me? Just send a message 💌")
 
-@bot.message_handler(func=lambda m: True)
-def chat_ai(message):
-    user_msg = message.text
-    reply = get_ai_reply(user_msg)
-    bot.reply_to(message, reply)
+# Bot command: /help
+@dp.message_handler(commands=['help'])
+async def help_command(message: Message):
+    await message.reply("Just send me anything, and I’ll reply like your cute girlfriend 💖")
 
-bot.polling()
+# Handle normal messages
+@dp.message_handler()
+async def handle_message(message: types.Message):
+    user_input = message.text
+    reply = await generate_reply(user_input)
+    await message.reply(reply)
+
+# Run the bot
+if __name__ == '__main__':
+    executor.start_polling(dp, skip_updates=True)
